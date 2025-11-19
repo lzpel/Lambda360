@@ -1,6 +1,4 @@
-// 「領域」の式ツリー、AIに読みやすいように定義
-pub type Vec2 = glam::DVec2;
-pub type Float = f64;
+use crate::{Float, Vec2};
 #[derive(Clone, Debug)]
 pub enum Region {
 	// プリミティブ
@@ -21,7 +19,7 @@ pub enum Region {
 }
 
 impl Region {
-	fn contains(&self, p: Vec2) -> bool {
+	pub fn contains(&self, p: Vec2) -> bool {
 		// match self { ... } で再帰的に評価
 		match self {
 			// 中心との距離が半径以下なら内側
@@ -93,7 +91,7 @@ impl Region {
 		}
 	}
 
-	fn bounding_box(&self) -> [Vec2; 2] {
+	pub fn bounding_box(&self) -> [Vec2; 2] {
 		match self {
 			// 円：中心 ± (r, r)
 			Region::Circle { center, radius } => {
@@ -208,7 +206,7 @@ impl Region {
 		}
 	}
 
-	fn signed_distance(&self, p: Vec2) -> Float {
+	pub fn signed_distance(&self, p: Vec2) -> Float {
 		match self {
 			// 円: 距離-半径
 			Region::Circle { center, radius } => (p - *center).length() - *radius,
@@ -324,7 +322,6 @@ impl Region {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
 	#[test]
 	fn contains_circle() {
 		let c = Region::Circle {
@@ -548,9 +545,9 @@ mod tests {
 			radian: std::f64::consts::FRAC_PI_2, // 90度
 		};
 
-		// (0,1) は元の rect の (1,0) → inside
+		// (0,0.9) は元の rect の (0.9,0) → inside
 		assert!(r.signed_distance(Vec2::new(0.0, 0.9)) < 0.0);
-		// (1,0) は元の rect の (0,-1) → outside
+		// (0.9,0) は元の rect の (0,-0.9) → outside
 		assert!(r.signed_distance(Vec2::new(0.9, 0.0)) > 0.0);
 	}
 }
