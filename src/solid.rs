@@ -412,3 +412,206 @@ impl Solid {
 		}
 	}
 }
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::f64::consts::FRAC_PI_2;
+
+	const EPS: Float = 1e-6;
+
+	fn assert_approx(a: Float, b: Float, msg: &str) {
+		assert!((a - b).abs() <= EPS, "{}: left = {}, right = {}", msg, a, b);
+	}
+
+	fn assert_vec3_approx(a: Vec3, b: Vec3, msg: &str) {
+		assert_approx(a.x, b.x, &format!("{msg} (x)"));
+		assert_approx(a.y, b.y, &format!("{msg} (y)"));
+		assert_approx(a.z, b.z, &format!("{msg} (z)"));
+	}
+
+	#[test]
+	fn bbox_box() {
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let s = Solid::Box { half_extent: h };
+		let [min, max] = s.bounding_box();
+
+		assert_vec3_approx(min, -h, "Box min");
+		assert_vec3_approx(max, h, "Box max");
+	}
+
+	#[test]
+	fn bbox_sphere() {
+		let c = Vec3::new(1.0, -2.0, 0.5);
+		let r: Float = 3.0;
+		let s = Solid::Sphere {
+			center: c,
+			radius: r,
+		};
+		let [min, max] = s.bounding_box();
+
+		let rr = Vec3::splat(r);
+		assert_vec3_approx(min, c - rr, "Sphere min");
+		assert_vec3_approx(max, c + rr, "Sphere max");
+	}
+
+	#[test]
+	fn bbox_translate() {
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let s = Solid::Box { half_extent: h };
+		let offset = Vec3::new(10.0, -5.0, 2.0);
+		let t = Solid::Translate {
+			solid: Box::new(s),
+			offset,
+		};
+
+		let [min, max] = t.bounding_box();
+		assert_vec3_approx(min, -h + offset, "Translate min");
+		assert_vec3_approx(max, h + offset, "Translate max");
+	}
+
+	#[test]
+	fn bbox_scale_positive() {
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let s = Solid::Box { half_extent: h };
+		let factor: Float = 2.0;
+		let t = Solid::Scale {
+			solid: Box::new(s),
+			factor,
+		};
+
+		let [min, max] = t.bounding_box();
+		assert_vec3_approx(min, -h * factor, "Scale+ min");
+		assert_vec3_approx(max, h * factor, "Scale+ max");
+	}
+
+	#[test]
+	fn bbox_scale_negative() {
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let s = Solid::Box { half_extent: h };
+		let factor: Float = -2.0;
+		let t = Solid::Scale {
+			solid: Box::new(s),
+			factor,
+		};
+
+		let [min, max] = t.bounding_box();
+		// 負スケールでは min/max が入れ替わる
+		assert_vec3_approx(min, h * factor, "Scale- min");
+		assert_vec3_approx(max, -h * factor, "Scale- max");
+	}
+
+	#[test]
+	fn bbox_rotate_z_90deg() {
+		// 原点中心 box を Z軸 90度回転したときの AABB をチェック
+		// half_extent = (1,2,3)
+		// 回転前: x ∈ [-1,1], y ∈ [-2,2], z ∈ [-3,3]
+		// Z軸 +90度: (x', y') = ( -y, x )
+		// → x' ∈ [-2,2], y' ∈ [-1,1], z'そのまま
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let s = Solid::Box { half_extent: h };
+
+		let angle: Float = FRAC_PI_2 as Float; // 90°
+		let r = Solid::Rotate {
+			solid: Box::new(s),
+			axis: Axis::Z,
+			radian: angle,
+		};
+
+		let [min, max] = r.bounding_box();
+
+		let expected_min = Vec3::new(-2.0, -1.0, -3.0);
+		let expected_max = Vec3::new(2.0, 1.0, 3.0);
+
+		assert_vec3_approx(min, expected_min, "RotateZ90 min");
+		assert_vec3_approx(max, expected_max, "RotateZ90 max");
+	}
+
+	#[test]
+	fn sdf_rotate_consistency_z_90deg() {
+		// Rotate の signed_distance が「p を逆回転させる」定義と一致しているかを軽くチェック
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let base = Solid::Box { half_extent: h };
+
+		let angle: Float = FRAC_PI_2 as Float; // 90°
+		let rotated = Solid::Rotate {
+			solid: Box::new(base.clone()),
+			axis: Axis::Z,
+			radian: angle,
+		};
+
+		// いくつかの点で、rotated.sdf(p) ≒ base.sdf(R^-1 p) になることを確認する
+		let c = angle.cos();
+		let s = angle.sin();
+
+		//fn rotate_z(p: Vec3, c: Float, s: Float) -> Vec3 {
+		//	Vec3::new(c * p.x - s * p.y, s * p.x + c * p.y, p.z)
+		//}
+
+		// 回転の逆（-angle）: R^-1
+		fn rotate_z_inv(p: Vec3, c: Float, s: Float) -> Vec3 {
+			// cos(-θ)=c, sin(-θ)=-s
+			Vec3::new(c * p.x + s * p.y, -s * p.x + c * p.y, p.z)
+		}
+
+		let test_points = [
+			Vec3::new(0.5, 0.5, 0.0),
+			Vec3::new(1.5, 0.0, 0.0),
+			Vec3::new(0.0, 2.5, 1.0),
+			Vec3::new(-0.5, -1.0, 2.0),
+		];
+
+		for &p in &test_points {
+			let d_rot = rotated.signed_distance(p);
+
+			let pre = rotate_z_inv(p, c, s); // 逆回転した点
+			let d_base = base.signed_distance(pre);
+
+			assert!(
+				(d_rot - d_base).abs() < 1e-4,
+				"sdf rotate mismatch at p={:?}: rot={}, base={}",
+				p,
+				d_rot,
+				d_base
+			);
+		}
+	}
+
+	#[test]
+	fn bbox_inaxes_identity_like() {
+		// InAxes で z_axis=(0,0,1), x_hint=(1,0,0), origin=0 にすると
+		// ほぼ「そのまま」の座標系なので bbox が元と一致するはず
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let base = Solid::Box { half_extent: h };
+
+		let wrapped = Solid::InAxes {
+			solid: Box::new(base),
+			origin: Vec3::new(0.0, 0.0, 0.0),
+			z_axis: Vec3::new(0.0, 0.0, 1.0),
+			x_hint: Vec3::new(1.0, 0.0, 0.0),
+		};
+
+		let [min, max] = wrapped.bounding_box();
+		assert_vec3_approx(min, -h, "InAxes identity-like min");
+		assert_vec3_approx(max, h, "InAxes identity-like max");
+	}
+
+	#[test]
+	fn bbox_inaxes_shifted_origin() {
+		// origin をずらした分だけ bbox も平行移動しているかを見る
+		let h = Vec3::new(1.0, 2.0, 3.0);
+		let base = Solid::Box { half_extent: h };
+
+		let origin = Vec3::new(10.0, -3.0, 5.0);
+
+		let wrapped = Solid::InAxes {
+			solid: Box::new(base),
+			origin,
+			z_axis: Vec3::new(0.0, 0.0, 1.0),
+			x_hint: Vec3::new(1.0, 0.0, 0.0),
+		};
+
+		let [min, max] = wrapped.bounding_box();
+		assert_vec3_approx(min, -h + origin, "InAxes shifted min");
+		assert_vec3_approx(max, h + origin, "InAxes shifted max");
+	}
+}
