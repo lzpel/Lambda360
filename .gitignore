@@ -1,2 +1,4 @@
-/target
+target/
 *.stl
+*.step
+*.obj

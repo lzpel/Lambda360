@@ -30,7 +30,9 @@ mod marching_cubes_tables {
 
 	// triTable[c] は最大 5 三角形（= 15頂点）＋終端 -1 の 16 要素配列
 	pub const TRI_TABLE: [[i8; 16]; 256] = [
-		[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
+		[
+			-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+		],
 		[0, 8, 3, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 		[0, 1, 9, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
 		[1, 8, 3, 9, 8, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
@@ -417,10 +419,11 @@ pub fn polygonize_marching_cubes(solid: &Solid, resolution: [usize; 3]) -> Vec<c
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::fs::File;
 	use crate::stl::write_stl_binary;
+	use std::fs::File;
 
-	#[test]fn export_sphere() -> std::io::Result<()> {
+	#[test]
+	fn export_sphere() -> std::io::Result<()> {
 		// 1. 直方体
 		let half_extent = Vec3::new(1.0, 0.5, 0.5);
 		let box_solid = Solid::Box { half_extent };
@@ -432,10 +435,7 @@ mod tests {
 		};
 
 		// 3. CSG: Box \ Sphere
-		let solid = Solid::Subtract(
-			Box::new(box_solid),
-			Box::new(sphere_solid),
-		);
+		let solid = Solid::Subtract(Box::new(box_solid), Box::new(sphere_solid));
 
 		let tris = polygonize_marching_cubes(&solid, [64, 64, 64]);
 
